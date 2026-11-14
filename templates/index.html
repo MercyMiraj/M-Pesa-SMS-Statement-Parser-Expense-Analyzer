@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M-Pesa SMS Parser & Expense Analyzer</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            background-color: #0b0b0f;
+            color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .navbar, .card {
+            background-color: #16161e;
+            border: 1px solid #2d2d3d;
+        }
+        .text-gold { color: #ffc107; }
+        .btn-purple {
+            background-color: #6f42c1;
+            color: #fff;
+            border: none;
+        }
+        .btn-purple:hover {
+            background-color: #5a3298;
+            color: #fff;
+        }
+        textarea.form-control {
+            background-color: #0f0f15;
+            color: #e9ecef;
+            border: 1px solid #3c3c52;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+        textarea.form-control:focus {
+            background-color: #0f0f15;
+            color: #fff;
+            border-color: #ffc107;
+            box-shadow: none;
+        }
+        table { color: #f8f9fa !important; }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-dark px-4 mb-4">
+        <div class="container-fluid">
+            <span class="navbar-brand fw-bold text-gold">📱 M-Pesa SMS Statement Parser & Analyzer</span>
+            <span class="badge bg-warning text-dark">Regex Cashflow Engine</span>
+        </div>
+    </nav>
+
+    <div class="container pb-5">
+        <!-- Input Box -->
+        <div class="card p-4 mb-4 shadow-sm">
+            <h5 class="text-gold mb-2">Paste Raw M-Pesa Confirmation SMS Messages</h5>
+            <p class="text-secondary small mb-3">Paste one or multiple M-Pesa messages below. Sample messages are pre-loaded so you can test immediately.</p>
+            <form method="POST">
+                <div class="mb-3">
+                    <textarea class="form-control" name="sms_text" rows="6" placeholder="Paste M-Pesa confirmation messages here...">{{ raw_text }}</textarea>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-purple px-4 fw-bold">Analyze Messages</button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="document.querySelector('textarea').value=''">Clear</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="row text-center mb-4">
+            <div class="col-md-4 mb-3">
+                <div class="card p-3">
+                    <span class="text-secondary small">Total Money Out (Expenses)</span>
+                    <h3 class="text-danger fw-bold mt-1">KES {{ "{:,.2f}".format(total_spent) }}</h3>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="card p-3">
+                    <span class="text-secondary small">Total Money In (Received)</span>
+                    <h3 class="text-success fw-bold mt-1">KES {{ "{:,.2f}".format(total_received) }}</h3>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="card p-3">
+                    <span class="text-secondary small">Total M-Pesa Transaction Fees</span>
+                    <h3 class="text-gold fw-bold mt-1">KES {{ "{:,.2f}".format(total_fees) }}</h3>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Parsed Transactions Table -->
+            <div class="col-lg-8 mb-4">
+                <div class="card p-4 h-100">
+                    <h5 class="text-gold mb-3">Extracted Transactions ({{ transactions|length }})</h5>
+                    {% if transactions %}
+                    <div class="table-responsive">
+                        <table class="table table-dark table-hover align-middle small">
+                            <thead>
+                                <tr>
+                                    <th>Code</th>
+                                    <th>Category</th>
+                                    <th>Recipient / Sender</th>
+                                    <th>Date & Time</th>
+                                    <th class="text-end">Amount</th>
+                                    <th class="text-end">Fee</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for tx in transactions %}
+                                <tr>
+                                    <td><span class="badge bg-secondary">{{ tx.code }}</span></td>
+                                    <td>{{ tx.type }}</td>
+                                    <td class="fw-semibold">{{ tx.party }}</td>
+                                    <td class="text-secondary">{{ tx.date }}</td>
+                                    <td class="text-end fw-bold {{ 'text-success' if tx.flow == 'income' else 'text-light' }}">
+                                        {{ '+' if tx.flow == 'income' else '-' }}KES {{ "{:,.2f}".format(tx.amount) }}
+                                    </td>
+                                    <td class="text-end text-warning">KES {{ "{:,.2f}".format(tx.cost) }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-secondary">No valid M-Pesa messages detected. Paste confirmation messages above and click Analyze.</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Spending Breakdown Chart -->
+            <div class="col-lg-4 mb-4">
+                <div class="card p-4 h-100 text-center">
+                    <h5 class="text-gold mb-3 text-start">Spending by Category</h5>
+                    {% if chart_values %}
+                    <div style="max-width: 300px; margin: auto;">
+                        <canvas id="expenseChart"></canvas>
+                    </div>
+                    {% else %}
+                    <p class="text-secondary my-auto">No expense data to chart yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const chartLabels = {{ chart_labels | tojson }};
+        const chartValues = {{ chart_values | tojson }};
+
+        if (chartValues.length > 0) {
+            const ctx = document.getElementById('expenseChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: chartLabels,
+                    datasets: [{
+                        data: chartValues,
+                        backgroundColor: ['#6f42c1', '#ffc107', '#0dcaf0', '#dc3545', '#20c997'],
+                        borderColor: '#16161e',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: '#f8f9fa', boxWidth: 12 }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
